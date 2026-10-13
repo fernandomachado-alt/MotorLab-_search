@@ -1,4 +1,4 @@
-name: Testar REA no Linux
+name: Testar REA com Ghidra
 
 on:
   workflow_dispatch:
@@ -7,17 +7,72 @@ permissions:
   contents: read
 
 jobs:
-  testar-rea:
+  analisar:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Preparar Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22.19.0'
 
+      - name: Preparar Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Instalar REA
         run: npm install --global rea-agents
 
-      - name: Testar inicializacao
-        run: rea --help
+      - name: Baixar Ghidra oficial
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.request
+          url = 'https://api.github.com/repos/NationalSecurityAgency/ghidra/releases?per_page=30'
+          req = urllib.request.Request(url, headers={'User-Agent': 'REA-academic-test'})
+          with urllib.request.urlopen(req) as r:
+              releases = json.load(r)
+          matches = [(r, a) for r in releases if '12.1.4' in r['tag_name'] for a in r['assets'] if a['name'].endswith('.zip') and 'PUBLIC' in a['name']]
+          if len(matches) != 1:
+              raise RuntimeError('Ghidra 12.1.4 nao encontrado; conferir versao exigida pela REA')
+          open('ghidra-url.txt', 'w').write(matches[0][1]['browser_download_url'])
+          PY
+          curl -fL --retry 3 -o ghidra.zip "$(cat ghidra-url.txt)"
+          unzip -q ghidra.zip -d "$RUNNER_TEMP"
+          GHIDRA_DIR="$(find "$RUNNER_TEMP" -maxdepth 1 -type d -name 'ghidra_*_PUBLIC' | head -n 1)"
+          test -x "$GHIDRA_DIR/support/analyzeHeadless"
+          echo "GHIDRA_INSTALL_DIR=$GHIDRA_DIR" >> "$GITHUB_ENV"
+
+      - name: Criar programa de teste
+        run: |
+          cat > teste.c <<'EOF'
+          #include <stdio.h>
+          int calcula_torque(int corrente, int fluxo) {
+              return corrente * fluxo;
+          }
+          int main(void) {
+              printf("torque=%d\n", calcula_torque(3, 5));
+              return 0;
+          }
+          EOF
+          gcc -O0 -g -o teste teste.c
+
+      - name: Diagnosticar integracao
+        run: rea doctor --provider ghidra --json > doctor.json
+
+      - name: Executar engenharia reversa
+        run: timeout 420 rea analyze "$GITHUB_WORKSPACE/teste" --provider ghidra --json > resultado.json
+
+      - name: Salvar resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultado-rea-ghidra
+          path: |
+            doctor.json
+            resultado.json
+          if-no-files-found: warn
+          retention-days: 7

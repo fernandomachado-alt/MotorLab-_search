@@ -1,0 +1,39 @@
+name: Gerar cache npm REA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gerar-cache:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Obter codigo da REA
+        uses: actions/checkout@v4
+        with:
+          repository: morluto/rea
+          ref: main
+          path: rea
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+
+      - name: Baixar dependencias npm
+        working-directory: rea
+        run: npm ci --ignore-scripts --cache "$GITHUB_WORKSPACE/npm-cache-rea" --no-audit --no-fund
+
+      - name: Compactar cache
+        run: tar -czf rea-npm-cache-linux.tar.gz -C npm-cache-rea _cacache
+
+      - name: Disponibilizar arquivo
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-npm-cache-linux
+          path: rea-npm-cache-linux.tar.gz
+          retention-days: 7
+          

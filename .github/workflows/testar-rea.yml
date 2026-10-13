@@ -1,0 +1,23 @@
+name: Testar REA no Linux
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  testar-rea:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+
+      - name: Instalar REA
+        run: npm install --global rea-agents
+
+      - name: Testar inicializacao
+        run: rea --help
